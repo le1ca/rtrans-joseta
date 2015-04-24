@@ -19,15 +19,17 @@ class rt:
               'ERR':   5
             }
 
-    def __init__(self, tty, baud, addr, callback, loss=0.0):
+    def __init__(self, tty, baud, addr, callback, loss=0.0, probe_time=5):
         self.tty  = Serial(tty, baudrate=baud)
         self.xbee = XBee(self.tty, callback=self._recv_frame)
         self.addr = struct.unpack("<H", addr)[0]
         self._frame = 0
         self._data = {}
         self._timer = {}
+        self._waiting = {}
         self._callback = callback
         self._loss = loss
+        self._probe_time = probe_time
     
     def _send(self, dest, pkg_type, pkg_no, seg_ct, seg_no, payload):
         rp = { 'master':   self.addr,
@@ -57,15 +59,22 @@ class rt:
                 time.sleep(0.1)
                 break
                 
-    def _ptimer(self, pid):
+    def _ptimer(self, pid, delay=5.0, cb=None):
+        if cb == None:
+            cb = rt._flow_expire
         if pid in self._timer:
             self._timer[pid].cancel()
-        self._timer[pid] = threading.Timer(5.0, rt._expire, [self, pid])
+        self._timer[pid] = threading.Timer(delay, cb, [self, pid])
         self._timer[pid].start()
                 
-    def _expire(self, pid):
+    def _flow_expire(self, pid):
+        print("Flow %04x/%d expired" % pid)
         del self._data[pid]
         del self._timer[pid]
+        
+    def _poll_retx(self, pid):
+        del self._timer[pid]
+        self.poll(pid)
         
     def _recv_frame(self, x):
         if x['id'] == 'rx':
@@ -74,6 +83,7 @@ class rt:
         
     def _proc_frame(self, x):  
         if x['id'] == 'rx':
+        
             # parse incoming packet
             pkt = rt_pkt(raw=x['rf_data'])
                     
@@ -82,16 +92,18 @@ class rt:
                     
             # if the packet was a join, poll the node for data
             if pkt['pkg_type'] == rt.ptype['JOIN']:
-                self.send(pkt['slave'], rt.ptype['POLL'], "")
+                self._slaves[pkt['slave']] = pkt['slave']
                         
             # handle data packet
             elif pkt['pkg_type'] == rt.ptype['DATA']:
+                print("Got data segment %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
                 pid = (pkt['slave'], pkt['pkg_no'])
                 
                 # check if we were waiting for this slave's data
-                if pkt['seg_no'] == 0 and pkt['slave']:
-                    # TODO
-                    pass
+                if pkt['seg_no'] == 0 and pkt['slave'] in self._waiting:
+                    self._timer[pkt['slave']].cancel()
+                    del self._timer[pkt['slave']]
+                    del self._waiting[pkt['slave']]
                 
                 # add segment to the corresponding buffer and call the callback if it is complete
                 if pkt['seg_no'] == 0 and pkt['seg_ct'] == 1:
@@ -108,11 +120,25 @@ class rt:
                             payload = "".join([pp['payload'] for pp in l])
                             self._callback(pkt['slave'], pkt['pkg_type'], payload)
                             del self._data[pid]
+                    else:
+                        self._ptimer(pid)
                 else:
-                    print("[rt] unexpected segment %04x.%02x" % (pkt['pkg_no'], pkt['seg_no']))
+                    print("[rt] unexpected segment %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
                 
     def probe(self):
-        self.send(0xffff, rt.ptype['PROBE'], "")
+        self._slaves = {}
+        for i in range(0, 2*self._probe_time):
+            print("Sending probe (%d)..." % i)
+            self.send(0xffff, rt.ptype['PROBE'], "")
+            time.sleep(0.5)
+        for i, v in self._slaves.items():
+            self._callback(i, rt.ptype['JOIN'], "")
+        
+    def poll(self, addr):
+        self._waiting[addr] = addr
+        self._ptimer(addr, delay=2.0, cb=rt._poll_retx)
+        print("Sending poll to %04x" % addr)
+        self.send(addr, rt.ptype['POLL'], "")
     
     def _end(self):    
         self.xbee.halt()
