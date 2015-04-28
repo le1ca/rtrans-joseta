@@ -9,32 +9,29 @@ void     app_decode_pkt(void *buffer, uint16_t len);
 
 int main(int argc, char** argv){
     int i, j;
-    char buffer[1024];
-    char temp[1024];
-    char *names[] = {"one", "two", "three", "four"};
-    uint16_t values[] = {0xaaaa, 0xbb, 0xcccc, 0xdd};
+    #define BSIZE (1024*20)
+    char buffer[BSIZE];
+    char temp[BSIZE];
+    char *names[] = {"flags", "voltage", "current", "phase","tempera","timesta"};
+    uint32_t values[] = {0xaa, 0xbbbb, 0xcccc, 0xdddd, 0xee, 0xffffffff};
+    uint8_t types[] = {RA_FMT_u8, RA_FMT_u16, RA_FMT_u16, RA_FMT_u16, RA_FMT_u8, RA_FMT_u32};
    
     void *next = temp;
-    uint16_t offset = 0;
+    uint32_t offset = 0;
     
-    uint8_t samp = 4;
-    uint8_t sset = 10;
+    uint8_t samp = 6;
+    uint8_t sset = 60;
     
     for(i = 0; i < sset; i++){
         for(j = 0; j < samp; j++){
-            offset += app_append_sample(next + offset, 1024 - offset, (j%2) ? RA_FMT_u8 : RA_FMT_u16, &values[j]);
+            offset += app_append_sample(next + offset, BSIZE - offset, types[j], &values[j]);
         }
     }
     
     
-    uint16_t plen = app_build_pkt(buffer, 1024, sset, samp, names, (void *) temp, offset);
-    
-    printf("packet len is %d bytes\n", plen);
-    
-    for(i = 0; i < plen; i++)
-        printf("%02x ", buffer[i] & 0xff);
-    printf("\n\n");
-    
+    uint16_t plen = app_build_pkt(buffer, BSIZE, sset, samp, names, (void *) temp, offset);
+    //for(i = 0; i < plen; i++)
+    //    putchar(buffer[i]);
     app_decode_pkt(buffer, plen);
     return 0;
 }
@@ -42,16 +39,16 @@ int main(int argc, char** argv){
 void app_print_val(radio_app_samp *v){
     switch(v->type){
         case RA_FMT_u64:
-            printf("%016llx", v->value.u64);
+            printf("%llu", v->value.u64);
             break;
         case RA_FMT_u32:
-            printf("%08x", v->value.u32);
+            printf("%u", v->value.u32);
             break;
         case RA_FMT_u16:
-            printf("%04x", v->value.u16);
+            printf("%u", v->value.u16);
             break;
         case RA_FMT_u8:
-            printf("%02x", v->value.u8);
+            printf("%u", v->value.u8);
             break;
         case RA_FMT_i64:
             printf("%lld", v->value.i64);
@@ -104,16 +101,19 @@ void app_decode_pkt(void *buffer, uint16_t len){
     void *ss = (void*) pkt->name_map + (RA_NAME_LEN * pkt->samp_ct);
     
     int i, j;
+    printf("[");
     for(i = 0; i < pkt->sset_ct; i++){
-        printf("Sample set %02d:\n", i+1);
+        printf("{");
         for(j = 0; j < pkt->samp_ct; j++){
-            printf("  %8s : ", pkt->name_map[j]);
+            printf("'%s':", pkt->name_map[j]);
             app_print_val(ss);
             ss += sizeof(uint8_t) + app_get_type_len(((radio_app_samp *) ss)->type);
-            printf("\n");
+            if(j < pkt->samp_ct - 1)
+                printf(",");
         }
-        printf("\n");
+        printf("}%c", i < pkt->sset_ct - 1 ? ',' : '\0');
     }
+    printf("]");
 }
 
 int8_t app_get_type_len(uint8_t t){
