@@ -14,6 +14,7 @@ class josetasim:
 
     # send an array of bytes on the uart
     def _send(self, l):
+        #print("Outgoing message of %d bytes" % len(l))
         for b in l:
             bb = bytes(chr(b))
             self._tty.write(bb)
