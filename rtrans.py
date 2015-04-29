@@ -44,6 +44,7 @@ class rt:
             self.xbee.tx(dest_addr=struct.pack(">H", dest), data=rt_pkt(parms=rp).raw)
 
     def _ack(self, pkt):
+        #print("ACKing %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
         self._send(pkt['slave'], rt.ptype['ACK'], pkt['pkg_no'], 1, pkt['seg_no'], "")
     
     def send(self, dest, pkg_type, payload):
@@ -96,7 +97,7 @@ class rt:
                         
             # handle data packet
             elif pkt['pkg_type'] == rt.ptype['DATA']:
-                print("Got data segment %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
+                #print("Got data segment %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
                 pid = (pkt['slave'], pkt['pkg_no'])
                 
                 # check if we were waiting for this slave's data
@@ -107,7 +108,7 @@ class rt:
                 
                 # add segment to the corresponding buffer and call the callback if it is complete
                 if pkt['seg_no'] == 0 and pkt['seg_ct'] == 1:
-                    self._callback(pkt['slave'], pkt['pkg_type'], pkg['payload'])
+                    self._callback(pkt['slave'], pkt['pkg_type'], pkt['payload'])
                 elif pkt['seg_no'] == 0:
                     self._data[pid] = [pkt]
                     self._ptimer(pid)
@@ -127,7 +128,7 @@ class rt:
                 
     def probe(self):
         self._slaves = {}
-        for i in range(0, 2*self._probe_time):
+        for i in range(0, int(2*self._probe_time)):
             print("Sending probe (%d)..." % i)
             self.send(0xffff, rt.ptype['PROBE'], "")
             time.sleep(0.5)
