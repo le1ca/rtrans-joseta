@@ -45,26 +45,20 @@ class rapp_pkt:
         (sset_ct, samp_ct) = struct.unpack("<BB", self.raw[0:2])
         offset = 2
         
-        print("expecting %d sets of %d samples" % (sset_ct, samp_ct))
-        
         # read names
         for i in range(0, samp_ct):
             self.names.append(self.raw[offset:offset+8].rstrip('\x00'))
             offset += 8
-            print("field name: %s" % (self.names[len(self.names)-1]))
             
         # begin reading sample sets
         for i in range(0, sset_ct):
             current = {}
             for j in range(0, samp_ct):
                 vtype = struct.unpack("<B", self.raw[offset])[0]
-                print("reading value of type %02x" % vtype)
                 offset += 1
                 fmt = "<%s" % rapp_pkt.type_code[vtype]
                 length = rapp_pkt.type_size[vtype]
-                print("format is %s, len is %d" % (fmt, length))
                 value = struct.unpack(fmt, self.raw[offset:offset+length])[0]
-                print("value is %s" % value)
                 offset += length
                 current[self.names[j]] = value
             self.parsed.append(current)
