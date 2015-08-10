@@ -26,10 +26,12 @@ class rt:
         self._frame = 0
         self._data = {}
         self._timer = {}
+        self._slaves = {}
         self._waiting = {}
         self._callback = callback
         self._loss = loss
         self._probe_time = probe_time
+        self._continue = True
     
     def _send(self, dest, pkg_type, pkg_no, seg_ct, seg_no, payload):
         rp = { 'master':   self.addr,
@@ -44,7 +46,7 @@ class rt:
             self.xbee.tx(dest_addr=struct.pack(">H", dest), data=rt_pkt(parms=rp).raw)
 
     def _ack(self, pkt):
-        #print("ACKing %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
+        print("ACKing %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
         self._send(pkt['slave'], rt.ptype['ACK'], pkt['pkg_no'], 1, pkt['seg_no'], "")
     
     def send(self, dest, pkg_type, payload):
@@ -52,13 +54,15 @@ class rt:
         self._frame += 1
         
     def wait(self):
-        while True:
+        while self._continue:
             try:
                 time.sleep(0.1)
             except KeyboardInterrupt:
                 self._end()
                 time.sleep(0.1)
-                break
+                return
+        self._end()
+        time.sleep(0.1)
                 
     def _ptimer(self, pid, delay=5.0, cb=None):
         if cb == None:
@@ -81,9 +85,14 @@ class rt:
         if x['id'] == 'rx':
             if random.random() > self._loss:
                 self._proc_frame(x)
+
+    def add_slave(self, x):
+        self._slaves[x] = x
         
     def _proc_frame(self, x):  
         if x['id'] == 'rx':
+        
+            print("got %d bytes" % len(x['rf_data']))
         
             # parse incoming packet
             pkt = rt_pkt(raw=x['rf_data'])
@@ -93,7 +102,7 @@ class rt:
                     
             # if the packet was a join, poll the node for data
             if pkt['pkg_type'] == rt.ptype['JOIN']:
-                self._slaves[pkt['slave']] = pkt['slave']
+                self.add_slave(pkt['slave'])
                         
             # handle data packet
             elif pkt['pkg_type'] == rt.ptype['DATA']:
@@ -127,7 +136,7 @@ class rt:
                     print("[rt] unexpected segment %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
                 
     def probe(self):
-        self._slaves = {}
+        #self._slaves = {}
         for i in range(0, int(2*self._probe_time)):
             print("Sending probe (%d)..." % i)
             self.send(0xffff, rt.ptype['PROBE'], "")
