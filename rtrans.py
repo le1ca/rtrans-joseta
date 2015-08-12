@@ -21,7 +21,7 @@ class rt:
 
     def __init__(self, tty, baud, addr, callback, loss=0.0, probe_time=5):
         self.tty  = Serial(tty, baudrate=baud)
-        self.xbee = XBee(self.tty, callback=self._recv_frame)
+        self.xbee = XBee(self.tty, callback=self._recv_frame, escaped=True)
         self.addr = struct.unpack("<H", addr)[0]
         self._frame = 0
         self._data = {}
