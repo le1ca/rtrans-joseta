@@ -19,7 +19,7 @@ class rt:
               'ERR':   5
             }
 
-    def __init__(self, tty, baud, addr, callback, loss=0.0, probe_time=5):
+    def __init__(self, tty, baud, addr, callback, probe_count=5, probe_interval=0.5):
         self.tty  = Serial(tty, baudrate=baud)
         self.xbee = XBee(self.tty, callback=self._recv_frame, escaped=True)
         self.addr = struct.unpack("<H", addr)[0]
@@ -29,8 +29,8 @@ class rt:
         self._slaves = {}
         self._waiting = {}
         self._callback = callback
-        self._loss = loss
-        self._probe_time = probe_time
+        self._probe_count = probe_count
+        self._probe_interval = probe_interval
         self._continue = True
     
     def _send(self, dest, pkg_type, pkg_no, seg_ct, seg_no, payload):
@@ -42,8 +42,7 @@ class rt:
                'seg_no':   seg_no,
                'payload':  payload
              }
-        if random.random() > self._loss:
-            self.xbee.tx(dest_addr=struct.pack(">H", dest), data=rt_pkt(parms=rp).raw)
+        self.xbee.tx(dest_addr=struct.pack(">H", dest), data=rt_pkt(parms=rp).raw)
 
     def _ack(self, pkt):
         print("ACKing %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
@@ -83,8 +82,7 @@ class rt:
         
     def _recv_frame(self, x):
         if x['id'] == 'rx':
-            if random.random() > self._loss:
-                self._proc_frame(x)
+            self._proc_frame(x)
 
     def add_slave(self, x):
         self._slaves[x] = x
@@ -137,10 +135,10 @@ class rt:
                 
     def probe(self):
         #self._slaves = {}
-        for i in range(0, int(2*self._probe_time)):
+        for i in range(0, self._probe_count):
             print("Sending probe (%d)..." % i)
             self.send(0xffff, rt.ptype['PROBE'], "")
-            time.sleep(0.5)
+            time.sleep(self._probe_interval)
         for i, v in self._slaves.items():
             self._callback(i, rt.ptype['JOIN'], "")
         
