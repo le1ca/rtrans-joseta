@@ -21,8 +21,15 @@ class poller:
                 time.sleep(self.delay)
                 while self._continue:
                         self.__poll()
-                        time.sleep(self.interval)
+                        for i in range(0, self.interval):
+                                time.sleep(1)
+                                if not self._continue:
+                                        break
         
         def start(self):
                 self.thread = threading.Thread(target=poller.run, args=(self,))
                 self.thread.start()
+        
+        def stop(self):
+                self._continue = False
+                self.thread.join()

@@ -45,7 +45,7 @@ class rt:
         self.xbee.tx(dest_addr=struct.pack(">H", dest), data=rt_pkt(parms=rp).raw)
 
     def _ack(self, pkt):
-        print("ACKing %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
+        #print("ACKing %04x/%d.%d" % (pkt['slave'], pkt['pkg_no'], pkt['seg_no']))
         self._send(pkt['slave'], rt.ptype['ACK'], pkt['pkg_no'], 1, pkt['seg_no'], "")
     
     def send(self, dest, pkg_type, payload):
@@ -72,7 +72,7 @@ class rt:
         self._timer[pid].start()
                 
     def _flow_expire(self, pid):
-        print("Flow %04x/%d expired" % pid)
+        print("[rt] Flow %04x/%d expired" % pid)
         del self._data[pid]
         del self._timer[pid]
         
@@ -90,7 +90,7 @@ class rt:
     def _proc_frame(self, x):  
         if x['id'] == 'rx':
         
-            print("got %d bytes" % len(x['rf_data']))
+            #print("got %d bytes" % len(x['rf_data']))
         
             # parse incoming packet
             pkt = rt_pkt(raw=x['rf_data'])
@@ -135,8 +135,8 @@ class rt:
                 
     def probe(self):
         #self._slaves = {}
+        print("[rt] Sending probe...")
         for i in range(0, self._probe_count):
-            print("Sending probe (%d)..." % i)
             self.send(0xffff, rt.ptype['PROBE'], "")
             time.sleep(self._probe_interval)
         for i, v in self._slaves.items():
@@ -145,7 +145,7 @@ class rt:
     def poll(self, addr):
         self._waiting[addr] = addr
         self._ptimer(addr, delay=2.0, cb=rt._poll_retx)
-        print("Sending poll to %04x" % addr)
+        print("[rt] Sending poll to %04x" % addr)
         self.send(addr, rt.ptype['POLL'], "")
     
     def _end(self):    

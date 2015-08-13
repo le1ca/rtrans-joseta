@@ -27,20 +27,30 @@ def callback_factory(poll, plot):
                         
         return callback
         
-print("init poller")
+print("[ds] Init poller")
 pol = poller(None, delay=5, interval=60)
 
-print("init plotter")
+print("[ds] Init plotter")
 plo = plotter('demo.pdf', interface.PKT_FIELDS, 'timesta')
 
-print("init interface")
+print("[ds] Init interface")
 d = interface('/dev/ttyUSB0', '\x1b\x63', callback_factory(pol, plo), slaves=['d5d9'])
 pol.transport = d
 
-print("start poll thread")
+print("[ds] Start poll thread")
 pol.start()
 
-print("start interface")
+print("[ds] Start interface")
 d.start()
 
-print("terminating")
+print("[ds] Start plotter")
+plo.plot_loop()
+print("[ds] Plotter stopped")
+
+print("[ds] Stopping poller")
+pol.stop()
+
+print("[ds] Stopping interface")
+d.stop()
+
+print("[ds] Terminating")
