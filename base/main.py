@@ -34,7 +34,7 @@ print("[ds] Init plotter")
 plo = plotter('demo.pdf', interface.PKT_FIELDS, 'timesta')
 
 print("[ds] Init interface")
-d = interface('/dev/ttyUSB0', '\x1b\x63', callback_factory(pol, plo), slaves=['d5d9'])
+d = interface('/dev/ttyACM1', '\x1b\x63', callback_factory(pol, plo), slaves=['d5d9'])
 pol.transport = d
 
 print("[ds] Start poll thread")

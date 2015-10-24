@@ -5,6 +5,11 @@
 
 import serial, time
 
+def debug(msg):
+    print("DEBUG: " + msg)
+
+
+
 class josetasim:
 
     # initialize the uart tty
@@ -66,6 +71,28 @@ class josetasim:
         c.append(0x00) # CRC
         c.append(0x00) 
         return c
+
+    def _checksum(self, byte1, byte2):
+        return 0xFF - ((byte1 + byte2) & 0xFF)
+
+    def _process_unknown_command(self, c):
+        print("Unknown command - assessing...")
+
+        checksum = self._checksum(c[0], c[1])
+        if c[2] == checksum:
+            print("Checksum is GOOD")
+        else:
+            print("Checksum has FAILED (should be {0}, is actually {1}".format(bin(checksum), bin(c[2])))
+
+        # pretend it's a data request
+        print("Let's assume it's a data request:")
+        if c[1] & 0xF0 == 0xF0:
+            print("\tEntire last minute should be sent")
+        else:
+            sample_index = (c[1] & 0xF0) >> 4
+            print("\tAsking for index {0}".format(sample_index + 1))
+
+        print("")
         
     # process a command
     def _process(self, c):
@@ -74,8 +101,11 @@ class josetasim:
         
         # data req
         if c[0] & 0xF0 == 0x10:
-            curtime = int(time.time()) - self._time
-            print("Current time is %d" % curtime)
+            if self._time is not None:
+                curtime = int(time.time()) - self._time
+                print("Current time is %d" % curtime)
+            else:
+                print("Current time is not set")
             if c[1] & 0xF0 == 0xF0:
                 for d in reversed(xrange(0,60)):
                     self._send(self._build_data(curtime - d))
@@ -86,17 +116,37 @@ class josetasim:
 
         # ctrl set
         elif c[0] & 0xF0 == 0x20:
-            pass
+            msg = "Control set: "
+            if c[1] & 0x80:
+                msg += "[O] occupancy sensor trigger "
+            if c[1] & 0x40:
+                msg += "[T] temperature range trigger "
+            if c[1] & 0x20:
+                msg += "[X] manual relay control "
+            if c[1] & 0x10:
+                msg += "[E] default relay state "
+            if c[1] & 0xF0 == 0x00:
+                msg += "Unknown control"
+
+            print(msg)
             
         # temp set
         elif c[0] & 0xF0 == 0x30:
-            pass
+            msg = "Temperature set: "
+
+            if c[1] & 0xF0:
+                msg += "(high) "
+            else:
+                msg += "(low) "
+
+            msg += str(c[1] & 0x7f)
             
         # time set or reset
         elif c[0] & 0xF0 == 0x40:
-            
+
             # reset unit
             if c[1] & 0x80 == 0x00:
+                print("Reset unit")
                 time.sleep(1)
                 self._send(self._build_init())
                 
@@ -104,6 +154,9 @@ class josetasim:
             else:
                 print("Epoch timestamp is %d" % (c[1] & 0x7F))
                 self._time = int(time.time()) - (c[1] & 0x7F)
+
+        else:
+            self._process_unknown_command(c)
             
     # start command loop
     def start(self):
@@ -113,6 +166,6 @@ class josetasim:
 
 
 if __name__ == "__main__":
-    j = josetasim('/dev/ttyUSB0', 9600)
+    j = josetasim('/dev/ttyACM0', 9600)
     j.start()
 
