@@ -3,7 +3,8 @@
 # This is a simulator implementing the protocol for Jose's sensor board.
 # It will be useful in testing the Launchpad's communication.
 
-import serial, time
+import serial, struct, time
+from PyCRC.CRC16 import CRC16
 
 def debug(msg):
     print("DEBUG: " + msg)
@@ -29,10 +30,43 @@ class josetasim:
     def _read(self):
         return [ord(self._tty.read(1)[0]) for i in range(0, 3)]
         
+    def _outgoing_crc(self, data):
+        #crc = 0
+        #x = 0
+        #for part in parts:
+        #    x = crc >> 8 ^ part
+        #    x = x ^ (x >> 4)
+        #    crc = (crc << 8) ^ 1
+        
+
+        #as_string = ''.join([hex(part) for part in parts]).replace('0x', r'\x')
+        #print("Data parts as string: " + as_string)
+        #return CRC16().calculate(as_string)
+
+
+        #uint16_t joseta_calc_crc(uint8_t* data_p, uint8_t length){
+        #uint8_t x;
+        #uint16_t crc = 0; //0xFFFF;
+        #while (length--){
+        #        x = crc >> 8 ^ *data_p++;
+        #        x ^= x>>4;
+        #        crc = (crc << 8) ^ ((uint16_t)(x << 12)) ^ ((uint16_t)(x <<5)) ^ ((uint16_t)x);
+        #}
+        #return crc;
+
+        crc = 0
+        for x in data:
+                x = ((crc >> 8) ^ x) & 0xFF
+                x = (x ^ x >> 4) & 0xFF
+                crc = ((crc << 8)&0xFFFF) ^ ((x << 12)&0xFFFF) ^ ((x << 5)&0xFFFF) ^ (x&0xFFFF)
+        
+        return crc
+
     # build a data packet
     def _build_data(self, ts):
         c = []
         print("Building packet with ts %d" % ts)
+        
         c.append(0x00) # FLAGS
         c.append(0xe0) # VOLTAGE
         c.append(0x2e)
@@ -47,8 +81,15 @@ class josetasim:
         c.append((ts & 0xFF000000) >> 24) 
         c.append(0x00) # RESERVED
         c.append(0x00) # ERROR
-        c.append(0x00) # CRC
-        c.append(0x00) 
+
+        # calculate CRC
+        crc_raw = self._outgoing_crc(c)
+        print("Found the CRC of " + str(crc_raw))
+        crc_part1, crc_part2 = [ord(x) for x in struct.pack('H',crc_raw)]
+
+
+        c.append(crc_part1) # CRC
+        c.append(crc_part2) 
         return c
         
     # build the initialization packet
