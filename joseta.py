@@ -3,13 +3,22 @@
 # This is a simulator implementing the protocol for Jose's sensor board.
 # It will be useful in testing the Launchpad's communication.
 
-import serial, struct, time
-from PyCRC.CRC16 import CRC16
+import sched, serial, struct, time
+from threading import Timer
 
-def debug(msg):
-    print("DEBUG: " + msg)
+def persistent_timer(delay, callback, args=None, kwargs=None):
 
+    if args is None:
+        args = []
+    if kwargs is None:
+        kwargs = {}
 
+    def run_event():
+        callback(*args, **kwargs)
+        new_timer = Timer(delay, run_event, args, kwargs)
+        new_timer.start()
+
+    return Timer(delay, run_event, args, kwargs)
 
 class josetasim:
 
@@ -31,29 +40,6 @@ class josetasim:
         return [ord(self._tty.read(1)[0]) for i in range(0, 3)]
         
     def _outgoing_crc(self, data):
-        #crc = 0
-        #x = 0
-        #for part in parts:
-        #    x = crc >> 8 ^ part
-        #    x = x ^ (x >> 4)
-        #    crc = (crc << 8) ^ 1
-        
-
-        #as_string = ''.join([hex(part) for part in parts]).replace('0x', r'\x')
-        #print("Data parts as string: " + as_string)
-        #return CRC16().calculate(as_string)
-
-
-        #uint16_t joseta_calc_crc(uint8_t* data_p, uint8_t length){
-        #uint8_t x;
-        #uint16_t crc = 0; //0xFFFF;
-        #while (length--){
-        #        x = crc >> 8 ^ *data_p++;
-        #        x ^= x>>4;
-        #        crc = (crc << 8) ^ ((uint16_t)(x << 12)) ^ ((uint16_t)(x <<5)) ^ ((uint16_t)x);
-        #}
-        #return crc;
-
         crc = 0
         for x in data:
                 x = ((crc >> 8) ^ x) & 0xFF
@@ -66,7 +52,8 @@ class josetasim:
     def _build_data(self, ts):
         c = []
         print("Building packet with ts %d" % ts)
-        
+
+        c.append(0xFF) # START BYTE
         c.append(0x00) # FLAGS
         c.append(0xe0) # VOLTAGE
         c.append(0x2e)
@@ -79,22 +66,22 @@ class josetasim:
         c.append((ts & 0x0000FF00) >> 8 )
         c.append((ts & 0x00FF0000) >> 16)
         c.append((ts & 0xFF000000) >> 24) 
-        c.append(0x00) # RESERVED
+        # c.append(0x00) # RESERVED
         c.append(0x00) # ERROR
 
         # calculate CRC
         crc_raw = self._outgoing_crc(c)
-        print("Found the CRC of " + str(crc_raw))
         crc_part1, crc_part2 = [ord(x) for x in struct.pack('H',crc_raw)]
 
 
         c.append(crc_part1) # CRC
-        c.append(crc_part2) 
+        c.append(crc_part2)
         return c
         
     # build the initialization packet
     def _build_init(self):
         c = []
+        c.append(0xFF) # START BYTE
         c.append(0x00) # FLAGS
         c.append(0x00) # VOLTAGE
         c.append(0x00)
@@ -107,33 +94,20 @@ class josetasim:
         c.append(0x00)
         c.append(0x00)
         c.append(0x00)
-        c.append(0x00) # RESERVED
+        # c.append(0x00) # RESERVED
         c.append(0x80) # ERROR
-        c.append(0x00) # CRC
-        c.append(0x00) 
+
+        # calculate CRC
+        crc_raw = self._outgoing_crc(c)
+        crc_part1, crc_part2 = [ord(x) for x in struct.pack('H',crc_raw)]
+
+
+        c.append(crc_part1) # CRC
+        c.append(crc_part2)
         return c
 
     def _checksum(self, byte1, byte2):
         return 0xFF - ((byte1 + byte2) & 0xFF)
-
-    def _process_unknown_command(self, c):
-        print("Unknown command - assessing...")
-
-        checksum = self._checksum(c[0], c[1])
-        if c[2] == checksum:
-            print("Checksum is GOOD")
-        else:
-            print("Checksum has FAILED (should be {0}, is actually {1}".format(bin(checksum), bin(c[2])))
-
-        # pretend it's a data request
-        print("Let's assume it's a data request:")
-        if c[1] & 0xF0 == 0xF0:
-            print("\tEntire last minute should be sent")
-        else:
-            sample_index = (c[1] & 0xF0) >> 4
-            print("\tAsking for index {0}".format(sample_index + 1))
-
-        print("")
         
     # process a command
     def _process(self, c):
@@ -141,22 +115,24 @@ class josetasim:
         print("Incoming command: %s" % c)
         
         # data req
-        if c[0] & 0xF0 == 0x10:
-            if self._time is not None:
-                curtime = int(time.time()) - self._time
-                print("Current time is %d" % curtime)
-            else:
-                print("Current time is not set")
-            if c[1] & 0xF0 == 0xF0:
-                for d in reversed(xrange(0,60)):
-                    self._send(self._build_data(curtime - d))
-            else:
-                offset = (c[1] & 0x70) >> 4
-                for d in xrange(0, 4):
-                    self._send(self._build_data(curtime - 60 + offset + d))
+        # if c[0] & 0xF0 == 0x10:
+        #     if self._time is not None:
+        #         curtime = int(time.time()) - self._time
+        #         print("Current time is %d" % curtime)
+        #     else:
+        #         print("Current time is not set")
+        #     if c[1] & 0xF0 == 0xF0:
+        #         for d in reversed(xrange(0,60)):
+        #             self._send(self._build_data(curtime - d))
+        #     else:
+        #         offset = (c[1] & 0x70) >> 4
+        #         for d in xrange(0, 4):
+        #             self._send(self._build_data(curtime - 60 + offset + d))
+
+
 
         # ctrl set
-        elif c[0] & 0xF0 == 0x20:
+        if c[0] & 0xF0 == 0x20:
             msg = "Control set: "
             if c[1] & 0x80:
                 msg += "[O] occupancy sensor trigger "
@@ -195,18 +171,22 @@ class josetasim:
             else:
                 print("Epoch timestamp is %d" % (c[1] & 0x7F))
                 self._time = int(time.time()) - (c[1] & 0x7F)
-
-        else:
-            self._process_unknown_command(c)
             
     # start command loop
     def start(self):
+        def send_last_second():
+            if self._time is not None:
+                curtime = int(time.time()) - self._time
+            else:
+                curtime = 0
+            self._send(self._build_data(curtime - 1))
+        persistent_timer(1, send_last_second, ()).start()
         while True:
             self._process(self._read())
         
 
 
 if __name__ == "__main__":
-    j = josetasim('/dev/ttyACM0', 9600)
+    j = josetasim('/dev/ttyUSB0', 9600)
     j.start()
 
