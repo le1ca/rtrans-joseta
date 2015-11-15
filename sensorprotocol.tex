@@ -53,6 +53,13 @@ This code can be used either to indicate that the sensor module should reset, or
 \end{verbatim}
 If \textbf{FLAG} is 0, then the sensor unit should reset. Upon reset, the unit should send a data frame with the \textbf{0x80} bit set (as specified in \ref{subsec:errorfield}). This message will be replied to with another control message; the \textbf{FLAG} will be set and the \textbf{TIME} value will indicate the value from which the module should start counting.
 
+\subsection{Stream rate and on/off (0x5)}
+This code is used to set streaming on or off (off by default) and the stream rate.
+\begin{verbatim}
+[ 0x5       | resv (4b) ] [ FLAG (1b) | RATE (7b) ] [ Checksum ]
+\end{verbatim}
+If \textbf{FLAG} is 0, then streaming is will be turned off. If 1, streaming will be turned on. The decimal value of \textbf{RATE} is the number of seconds to wait between receiving streamed packets (value of zero leaves the rate unchanged).
+
 \section{Data messages}
 Each data message consists of \textbf{16} bytes and corresponds to one second of measurements. The first \textbf{12} bytes are payload; the next \textbf{1} byte is reserved; the next \textbf{1} byte is the \textbf{ERROR} flag mask; the final \textbf{2} bytes are a 16-bit CRC.
 

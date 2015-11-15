@@ -3,8 +3,14 @@
 # This is a simulator implementing the protocol for Jose's sensor board.
 # It will be useful in testing the Launchpad's communication.
 
-import sched, serial, struct, time
+import serial, struct, time
 from threading import Timer
+
+START_BYTE = 0xFF
+ESCAPE_BYTE = 0xFE
+streaming = True
+timer = None
+second_delay = 1
 
 def persistent_timer(delay, callback, args=None, kwargs=None):
 
@@ -14,11 +20,24 @@ def persistent_timer(delay, callback, args=None, kwargs=None):
         kwargs = {}
 
     def run_event():
-        callback(*args, **kwargs)
-        new_timer = Timer(delay, run_event, args, kwargs)
-        new_timer.start()
+        if streaming:
+            callback(*args, **kwargs)
+            new_timer = Timer(delay, run_event, args, kwargs)
+            new_timer.start()
 
     return Timer(delay, run_event, args, kwargs)
+
+
+def escape(b):
+    """
+    Returns a list of bytes - either a list consisting of only the input (i.e. [b])
+    or a list consisting of an escape byte and the input (i.e. [\, b]).
+    """
+    # Only special bytes need escaping. For now, those are only the start byte and the escape byte itself.
+    if b in (START_BYTE, ESCAPE_BYTE):
+        return [ESCAPE_BYTE, b]
+    else:
+        return [b]
 
 class josetasim:
 
@@ -29,7 +48,7 @@ class josetasim:
 
     # send an array of bytes on the uart
     def _send(self, l):
-        #print("Outgoing message of %d bytes" % len(l))
+        # print("Outgoing message of %d bytes" % len(l))
         for b in l:
             bb = bytes(chr(b))
             self._tty.write(bb)
@@ -53,21 +72,22 @@ class josetasim:
         c = []
         print("Building packet with ts %d" % ts)
 
-        c.append(0xFF) # START BYTE
-        c.append(0x00) # FLAGS
-        c.append(0xe0) # VOLTAGE
-        c.append(0x2e)
-        c.append(0x64) # CURRENT
-        c.append(0x00)
-        c.append(0x10) # PHASE
-        c.append(0x00)
-        c.append(0x14) # TEMPERATURE
-        c.append((ts & 0x000000FF) >> 0 ) # TIMESTAMP
-        c.append((ts & 0x0000FF00) >> 8 )
-        c.append((ts & 0x00FF0000) >> 16)
-        c.append((ts & 0xFF000000) >> 24) 
-        # c.append(0x00) # RESERVED
-        c.append(0x00) # ERROR
+        c.append(START_BYTE) # START BYTE - not one of the 16
+
+        c.extend(escape(0x00)) # FLAGS
+        c.extend(escape(0xe0)) # VOLTAGE
+        c.extend(escape(0x2e))
+        c.extend(escape(0x64)) # CURRENT
+        c.extend(escape(0x00))
+        c.extend(escape(0x10)) # PHASE
+        c.extend(escape(0x00))
+        c.extend(escape(0x14)) # TEMPERATURE
+        c.extend(escape((ts & 0x000000FF) >> 0 )) # TIMESTAMP
+        c.extend(escape((ts & 0x0000FF00) >> 8 ))
+        c.extend(escape((ts & 0x00FF0000) >> 16))
+        c.extend(escape((ts & 0xFF000000) >> 24))
+        c.extend(escape(0x00)) # RESERVED
+        c.extend(escape(0x00)) # ERROR
 
         # calculate CRC
         crc_raw = self._outgoing_crc(c)
@@ -81,7 +101,9 @@ class josetasim:
     # build the initialization packet
     def _build_init(self):
         c = []
+
         c.append(0xFF) # START BYTE
+
         c.append(0x00) # FLAGS
         c.append(0x00) # VOLTAGE
         c.append(0x00)
@@ -94,7 +116,7 @@ class josetasim:
         c.append(0x00)
         c.append(0x00)
         c.append(0x00)
-        # c.append(0x00) # RESERVED
+        c.append(0x00) # RESERVED
         c.append(0x80) # ERROR
 
         # calculate CRC
@@ -171,16 +193,38 @@ class josetasim:
             else:
                 print("Epoch timestamp is %d" % (c[1] & 0x7F))
                 self._time = int(time.time()) - (c[1] & 0x7F)
-            
+
+        # stream rate and on/off
+        elif c[0] & 0xF0 == 0x50:
+            global streaming
+            global second_delay
+            global timer
+            if c[1] & 0x80 == 0x80:
+                streaming = True
+            else:
+                streaming = False
+
+            if c[1] & 0x7F == 0:
+                # keep rate as-is
+                pass
+            else:
+                second_delay = c[1] & 0x7F
+                # referencing the old timer.function ensures that this timer still repeats
+                timer = Timer(second_delay, timer.function, timer.args, timer.kwargs)
+
+
     # start command loop
     def start(self):
-        def send_last_second():
+        def send_frames(seconds_elapsed):
             if self._time is not None:
                 curtime = int(time.time()) - self._time
             else:
                 curtime = 0
-            self._send(self._build_data(curtime - 1))
-        persistent_timer(1, send_last_second, ()).start()
+            packets = [self._build_data(curtime - n) for n in reversed(range(1, seconds_elapsed+1))]
+            stream = [byte for packet in packets for byte in packet]
+            self._send(stream)
+        timer = persistent_timer(second_delay, send_frames, (second_delay))
+        timer.start()
         while True:
             self._process(self._read())
         
