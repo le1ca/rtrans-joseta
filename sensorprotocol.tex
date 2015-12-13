@@ -14,7 +14,7 @@
 \parskip   0pt
 
 \section{General}
-Two types of messages are defined for the sensor unit protocol. Control messages are sent by the controller to the sensor unit, while data messages are sent by the sensor unit to the controller. Data messages should not be sent except when requested by a control message. The sensor unit must be prepared to accept a control message at any time. All multi-byte fields described herein should be interpreted as little-endian. Each individual byte is big-endian, and all fields should be expected in the order they are listed. The UART should be configured at 9600/8-N-1 with no flow control.
+Two types of messages are defined for the sensor unit protocol. Control messages are sent by the controller to the sensor unit, while data messages are sent by the sensor unit to the controller. Data messages should be sent on a regular basis, except when the sensor unit receives a control message telling it to stop (see section 2.4). The sensor unit must be prepared to accept a control message at any time. All multi-byte fields described herein should be interpreted as little-endian. Each individual byte is big-endian, and all fields should be expected in the order they are listed. The UART should be configured at 9600/8-N-1 with no flow control.
 
 \section{Control messages}
 All control messages are three bytes; each consists of a 4-bit \textbf{CODE}, an 8-bit payload, and an 8-bit checksum:
@@ -24,13 +24,6 @@ All control messages are three bytes; each consists of a 4-bit \textbf{CODE}, an
 Segments labeled \textbf{resv} are to be considered reserved space. Currently there are four \textbf{CODE}s defined, each having a different purpose.
 
 Each checksum is calculated such that the sum of all three bytes (truncated to one byte) equals \textbf{0xFF}; i.e., \texttt{checksum = 0xFF - ((byte1 + byte2) \& 0xFF)}.
-
-\subsection{Data request (0x1)}
-This code indicates that the sensor unit should send data to the controller. One minute of data is buffered on the sensor unit; this data may be 		requested all at once or in four-sample chunks.
-\begin{verbatim}
-[ 0x1       | resv (4b) ] [ ADDR (4b) | resv (4b) ] [ Checksum ]
-\end{verbatim}
-If the \textbf{ADDR} field equals \textbf{0xF} (i.e., all bits set), then the entire last minute of data should be sent. If \textbf{ADDR} is less than \textbf{0xF}, then it is an index to a four-sample chunk of data. For example, if \textbf{ADDR} is \textbf{0x0}, the first four samples are sent; if \textbf{ADDR} is \textbf{0x1}, the second four samples are sent.
 
 \subsection{Control set (0x2)}
 This code sets the state of the control options available on the sensor unit. Respectively, these options are occupancy sensor trigger (\textbf{O}), temperature range trigger (\textbf{T}), manual relay control (\textbf{X}), and default relay state (\textbf{E}).
@@ -61,7 +54,7 @@ This code is used to set streaming on or off (off by default) and the stream rat
 If \textbf{FLAG} is 0, then streaming is will be turned off. If 1, streaming will be turned on. The decimal value of \textbf{RATE} is the number of seconds to wait between receiving streamed packets (value of zero leaves the rate unchanged).
 
 \section{Data messages}
-Each data message consists of \textbf{16} bytes and corresponds to one second of measurements. The first \textbf{12} bytes are payload; the next \textbf{1} byte is reserved; the next \textbf{1} byte is the \textbf{ERROR} flag mask; the final \textbf{2} bytes are a 16-bit CRC.
+Each data message consists of \textbf{16} bytes and corresponds to one second of measurements. The first \textbf{12} bytes are payload; the next \textbf{1} byte is reserved; the next \textbf{1} byte is the \textbf{ERROR} flag mask; the final \textbf{2} bytes are a 16-bit CRC. They are preceded by a start byte and may include escape bytes.
 
 \vspace{12pt}
 \noindent
@@ -108,4 +101,10 @@ The remaining bits are reserved.
 15 [_____________]
 \end{verbatim}
 \end{minipage}
+
+\subsection{Escape bytes}
+\textbf{0xFE} should be interpreted as an escape byte: if \textbf{0xFE} precedes a byte, the escape byte should be ignored and the following byte should be interpreted as part of the message. Currently used to escape the start byte (\textbf{0xFF}) and the escape byte itself (\textbf{0xFE}) should those bytes be used in the message body, though it can be expanded to other special bytes.
+
+\subsection{Start byte}
+Data messages are preceded by a start byte, \textbf{0xFF}. If the controller receives a start byte (unless it is escaped), it should discard the message it has buffered (if any) and start receiving a new message.
 \end{document}
