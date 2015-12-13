@@ -5,6 +5,7 @@
 
 import serial, struct, time
 from threading import Timer
+import random
 
 START_BYTE = 0xFF
 ESCAPE_BYTE = 0xFE
@@ -19,10 +20,10 @@ def persistent_timer(delay, callback, args=None, kwargs=None):
     if kwargs is None:
         kwargs = {}
 
-    def run_event():
+    def run_event(*args2, **kwargs2):
         if streaming:
-            callback(*args, **kwargs)
-            new_timer = Timer(delay, run_event, args, kwargs)
+            callback(*args2, **kwargs2)
+            new_timer = Timer(delay, run_event, args2, kwargs2)
             new_timer.start()
 
     return Timer(delay, run_event, args, kwargs)
@@ -49,10 +50,29 @@ class josetasim:
     # send an array of bytes on the uart
     def _send(self, l):
         # print("Outgoing message of %d bytes" % len(l))
+
+        ### simulated packet loss
+        if random.random() > 0.9:
+            print("Outgoing packet is corrupted")
+            l = l[:5] + l[6:]
+
+        ### calculate CRC
+        crc_raw = self._outgoing_crc(l)
+        crc_part1, crc_part2 = [ord(x) for x in struct.pack('H',crc_raw)]
+        l.append(crc_part1)
+        l.append(crc_part2)
+
+        ### escape
+        byte_lists = [escape(b) for b in l]
+        l = [b for sublist in byte_lists for b in sublist]  # flatten
+        
+        ### start byte
+        l.insert(0, START_BYTE)
+
         for b in l:
             bb = bytes(chr(b))
             self._tty.write(bb)
-            time.sleep(0.01)
+            #time.sleep(0.01)
 
     # read a 3-byte command sequence
     def _read(self):
@@ -72,37 +92,26 @@ class josetasim:
         c = []
         print("Building packet with ts %d" % ts)
 
-        c.append(START_BYTE) # START BYTE - not one of the 16
+        c.append(0x00) # FLAGS
+        c.append(0xe0) # VOLTAGE
+        c.append(0x2e)
+        c.append(0x64) # CURRENT
+        c.append(0x00)
+        c.append(0x10) # PHASE
+        c.append(0x00)
+        c.append(0x14) # TEMPERATURE
+        c.append((ts & 0x000000FF) >> 0 ) # TIMESTAMP
+        c.append((ts & 0x0000FF00) >> 8 )
+        c.append((ts & 0x00FF0000) >> 16)
+        c.append((ts & 0xFF000000) >> 24)
+        c.append(0x00) # RESERVED
+        c.append(0x00) # ERROR
 
-        c.extend(escape(0x00)) # FLAGS
-        c.extend(escape(0xe0)) # VOLTAGE
-        c.extend(escape(0x2e))
-        c.extend(escape(0x64)) # CURRENT
-        c.extend(escape(0x00))
-        c.extend(escape(0x10)) # PHASE
-        c.extend(escape(0x00))
-        c.extend(escape(0x14)) # TEMPERATURE
-        c.extend(escape((ts & 0x000000FF) >> 0 )) # TIMESTAMP
-        c.extend(escape((ts & 0x0000FF00) >> 8 ))
-        c.extend(escape((ts & 0x00FF0000) >> 16))
-        c.extend(escape((ts & 0xFF000000) >> 24))
-        c.extend(escape(0x00)) # RESERVED
-        c.extend(escape(0x00)) # ERROR
-
-        # calculate CRC
-        crc_raw = self._outgoing_crc(c)
-        crc_part1, crc_part2 = [ord(x) for x in struct.pack('H',crc_raw)]
-
-
-        c.append(crc_part1) # CRC
-        c.append(crc_part2)
         return c
         
     # build the initialization packet
     def _build_init(self):
         c = []
-
-        c.append(0xFF) # START BYTE
 
         c.append(0x00) # FLAGS
         c.append(0x00) # VOLTAGE
@@ -119,13 +128,6 @@ class josetasim:
         c.append(0x00) # RESERVED
         c.append(0x80) # ERROR
 
-        # calculate CRC
-        crc_raw = self._outgoing_crc(c)
-        crc_part1, crc_part2 = [ord(x) for x in struct.pack('H',crc_raw)]
-
-
-        c.append(crc_part1) # CRC
-        c.append(crc_part2)
         return c
 
     def _checksum(self, byte1, byte2):
@@ -221,9 +223,9 @@ class josetasim:
             else:
                 curtime = 0
             packets = [self._build_data(curtime - n) for n in reversed(range(1, seconds_elapsed+1))]
-            stream = [byte for packet in packets for byte in packet]
-            self._send(stream)
-        timer = persistent_timer(second_delay, send_frames, (second_delay))
+            for packet in packets:
+                self._send(packet)
+        timer = persistent_timer(second_delay, send_frames, (second_delay,))
         timer.start()
         while True:
             self._process(self._read())
